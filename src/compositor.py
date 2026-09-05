@@ -5,17 +5,27 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 
 from src.parser import MemoryItem
 
-# Standard system font candidates
+# Standard Roboto and fallback system fonts
+_FONTS_DIR = Path(__file__).parent.parent / "fonts"
+
 _BOLD_FONTS = [
+    str(_FONTS_DIR / "Roboto-Bold.ttf"),
+    "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+]
+
+_MEDIUM_FONTS = [
+    str(_FONTS_DIR / "Roboto-Medium.ttf"),
+    "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Medium.ttf",
+    str(_FONTS_DIR / "Roboto-Regular.ttf"),
 ]
 
 _REGULAR_FONTS = [
+    str(_FONTS_DIR / "Roboto-Regular.ttf"),
+    "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Regular.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
 ]
 
 
@@ -27,6 +37,24 @@ def _get_font(font_paths: list[str], size: int) -> ImageFont.FreeTypeFont | Imag
             except Exception:
                 continue
     return ImageFont.load_default()
+
+
+def compose_year_card(year: int | str, width: int = 1080, height: int = 1920) -> Image.Image:
+    """Renders a minimalist intro/outro title card showing only the year on a black background."""
+    card = Image.new("RGB", (width, height), (0, 0, 0))
+    draw = ImageDraw.Draw(card)
+    font = _get_font(_BOLD_FONTS, 140)
+
+    text = str(year)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    text_x = (width - text_w) // 2
+    text_y = (height - text_h) // 2 - 10
+
+    draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255))
+    return card
 
 
 def resize_and_crop(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
@@ -122,36 +150,35 @@ def draw_text_with_shadow(
     draw.text((x, y), text, font=font, fill=text_color, align=align)
 
 
+from pilmoji import Pilmoji
+
+
 def render_caption_banner(
     caption: str,
-    max_width: int = 860,
-    max_font_size: int = 40,
-    min_font_size: int = 24,
+    max_width: int = 920,
+    max_font_size: int = 54,
+    min_font_size: int = 30,
 ) -> Optional[Image.Image]:
-    """Renders an adaptive caption pill with dynamic font scaling to prevent overflow."""
+    """Renders an adaptive caption pill with dynamic font scaling and full emoji support."""
     clean_caption = caption.strip()
     if not clean_caption:
         return None
 
-    # Iteratively find the best font size and line wrapping
+    dummy_img = Image.new("RGBA", (1, 1))
     best_font = None
     best_lines = []
-    
+
     for font_size in range(max_font_size, min_font_size - 1, -2):
         font = _get_font(_BOLD_FONTS, font_size)
-        # Estimate wrap width in characters
-        # Average character width is approx font_size * 0.55
         approx_char_w = max(1, int(font_size * 0.55))
-        wrap_chars = max(15, max_width // approx_char_w)
+        wrap_chars = max(12, max_width // approx_char_w)
         
         lines = textwrap.wrap(clean_caption, width=wrap_chars)
         if len(lines) > 3:
             continue
-            
-        # Check actual pixel width of all lines
-        dummy_img = Image.new("RGBA", (1, 1))
-        dummy_draw = ImageDraw.Draw(dummy_img)
-        line_widths = [dummy_draw.textbbox((0, 0), line, font=font)[2] for line in lines]
+
+        with Pilmoji(dummy_img) as p:
+            line_widths = [p.getsize(l, font=font)[0] for l in lines]
         
         if all(w <= max_width for w in line_widths):
             best_font = font
@@ -160,28 +187,29 @@ def render_caption_banner(
 
     if best_font is None:
         best_font = _get_font(_BOLD_FONTS, min_font_size)
-        best_lines = textwrap.wrap(clean_caption, width=35)[:3]
+        best_lines = textwrap.wrap(clean_caption, width=30)[:3]
 
-    dummy_img = Image.new("RGBA", (1, 1))
-    dummy_draw = ImageDraw.Draw(dummy_img)
-    line_bboxes = [dummy_draw.textbbox((0, 0), line, font=best_font) for line in best_lines]
-    max_line_w = max(b[2] - b[0] for b in line_bboxes)
-    line_h = max(b[3] - b[1] for b in line_bboxes) + 8
+    with Pilmoji(dummy_img) as p:
+        line_sizes = [p.getsize(l, font=best_font) for l in best_lines]
+
+    max_line_w = max(s[0] for s in line_sizes)
+    line_h = max(s[1] for s in line_sizes) + 12
     total_text_h = line_h * len(best_lines)
 
-    pad_x, pad_y = 28, 16
+    pad_x, pad_y = 32, 20
     pill_w = max_line_w + 2 * pad_x
     pill_h = total_text_h + 2 * pad_y
 
     pill = Image.new("RGBA", (pill_w, pill_h), (0, 0, 0, 0))
     draw_pill = ImageDraw.Draw(pill)
-    draw_pill.rounded_rectangle([(0, 0), (pill_w, pill_h)], radius=18, fill=(0, 0, 0, 165))
+    draw_pill.rounded_rectangle([(0, 0), (pill_w, pill_h)], radius=22, fill=(0, 0, 0, 165))
 
-    for i, line in enumerate(best_lines):
-        line_w = dummy_draw.textbbox((0, 0), line, font=best_font)[2]
-        line_x = (pill_w - line_w) // 2
-        line_y = pad_y + i * line_h
-        draw_pill.text((line_x, line_y), line, font=best_font, fill=(255, 255, 255, 255))
+    with Pilmoji(pill) as p:
+        for i, line in enumerate(best_lines):
+            line_w = p.getsize(line, font=best_font)[0]
+            line_x = (pill_w - line_w) // 2
+            line_y = pad_y + i * line_h
+            p.text((line_x, line_y), line, fill=(255, 255, 255, 255), font=best_font)
 
     return pill
 
@@ -196,7 +224,7 @@ def compose_frame(
     - Large background photo (back camera) center-cropped
     - Top-left selfie photo (front camera) in rounded PIP with border
     - Top-right date and location overlay
-    - Bottom adaptive caption overlay
+    - Bottom adaptive caption overlay with emoji support
     """
     # 1. Background image
     with Image.open(memory.back_image_path) as back_raw:
@@ -214,7 +242,7 @@ def compose_frame(
     # 3. Top-Right Date and Location Text
     draw = ImageDraw.Draw(frame)
     date_font = _get_font(_BOLD_FONTS, 38)
-    loc_font = _get_font(_REGULAR_FONTS, 28)
+    loc_font = _get_font(_MEDIUM_FONTS, 28)
 
     right_margin = width - 40
     top_pos = 45
@@ -223,22 +251,24 @@ def compose_frame(
     date_text = memory.formatted_date
     date_bbox = draw.textbbox((0, 0), date_text, font=date_font)
     date_w = date_bbox[2] - date_bbox[0]
+    date_h = date_bbox[3] - date_bbox[1]
     draw_text_with_shadow(draw, (right_margin - date_w, top_pos), date_text, font=date_font)
 
-    # Location (if available)
+    # Location (if available) with a clean 18px gap below date
     if memory.location_name:
         loc_text = memory.location_name
         loc_bbox = draw.textbbox((0, 0), loc_text, font=loc_font)
         loc_w = loc_bbox[2] - loc_bbox[0]
-        loc_y = top_pos + (date_bbox[3] - date_bbox[1]) + 10
+        gap_between_date_and_loc = 18
+        loc_y = top_pos + date_h + gap_between_date_and_loc
         draw_text_with_shadow(draw, (right_margin - loc_w, loc_y), loc_text, font=loc_font)
 
-    # 4. Bottom Caption Overlay
+    # 4. Bottom Caption Overlay (lower position & larger adaptive font)
     if memory.caption:
         caption_pill = render_caption_banner(memory.caption, max_width=width - 160)
         if caption_pill:
             cap_x = (width - caption_pill.width) // 2
-            cap_y = height - caption_pill.height - 180
+            cap_y = height - caption_pill.height - 110
             frame.paste(caption_pill, (cap_x, cap_y), mask=caption_pill)
 
     return frame

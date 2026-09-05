@@ -11,5 +11,7 @@ wheels/
 
 data/
 output/
+songs/
+configs/config_*.json
 *:Zone.Identifier
 *Zone.Identifier

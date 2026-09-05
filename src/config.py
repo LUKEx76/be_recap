@@ -8,7 +8,8 @@ class TrackConfig(BaseModel):
     """Configuration for an individual audio track."""
     path: Path
     bpm: float = Field(..., gt=0, description="Beats per minute of the track")
-    start_offset_seconds: float = Field(default=0.0, ge=0.0, description="Offset in seconds from which to start the track")
+    start_offset_seconds: float = Field(default=0.0, description="Offset in seconds (positive trims start of song; negative prepends silence)")
+    beats_per_memory: int = Field(default=1, ge=1, le=16, description="Number of beats each memory is displayed for (default 1)")
 
     @field_validator("path")
     @classmethod

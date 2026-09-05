@@ -1,12 +1,13 @@
 {
-  "year": 2024,
+  "year": 2025,
   "export_dir": "data/2026-06-06/gNuKFTLhZAMEqVyRlmIcLLrR2Av1-1vAqR7wyKySp0Ige7-Rs4",
-  "output_path": "output/bereal_recap_2024.mp4",
+  "output_path": "output/bereal_recap_2025.mp4",
   "fps": 30,
   "tracks": [
     {
       "path": "data/dummy/lofi1.mp3",
       "bpm": 120.0,
+      "beats_per_memory": 1,
       "start_offset_seconds": 0.0
     }
   ]

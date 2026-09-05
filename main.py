@@ -45,6 +45,7 @@ def run(config_path: str | Path) -> None:
         memories=memories,
         fps=config.fps,
         output_audio_path=temp_audio_path,
+        year=config.year,
     )
     print(f"✅ Audio timeline generated: {timeline.total_duration:.2f}s total ({timeline.total_frames} frames)")
 

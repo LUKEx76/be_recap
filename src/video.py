@@ -5,7 +5,7 @@ from typing import Optional
 import imageio_ffmpeg
 
 from src.audio import AudioTimeline
-from src.compositor import compose_frame
+from src.compositor import compose_frame, compose_year_card
 
 
 def render_recap_video(
@@ -83,7 +83,11 @@ def render_recap_video(
         total_rendered_frames = 0
         for i, entry in enumerate(timeline.entries):
             # Render frame in memory
-            frame_img = compose_frame(entry.memory, width=width, height=height)
+            if entry.is_title_card:
+                frame_img = compose_year_card(entry.card_text or (str(year) if year else ""), width=width, height=height)
+            else:
+                frame_img = compose_frame(entry.memory, width=width, height=height)
+
             raw_bytes = frame_img.tobytes("raw", "RGB")
             del frame_img  # Free memory immediately
 
