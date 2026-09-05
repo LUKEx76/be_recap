@@ -55,51 +55,48 @@ def build_timeline_and_audio(
 
     entries: List[BeatEntry] = []
     
-    # 1. Determine memory partition per track
-    if len(tracks) == 1:
-        partitions = [(0, total_memories, tracks[0])]
-    else:
-        half = total_memories // 2
-        partitions = [
-            (0, half, tracks[0]),
-            (half, total_memories, tracks[1]),
-        ]
-
+    # 1. Sequentially assign memories to tracks until all memories are covered
     audio_segments = []
     target_sr = 44100
     current_time = 0.0
     current_frame = 0
+    remaining_memories = total_memories
+    mem_cursor = 0
 
-    for track_idx, (start_idx, end_idx, track_cfg) in enumerate(partitions):
-        count = end_idx - start_idx
-        if count == 0:
-            continue
-            
+    for track_idx, track_cfg in enumerate(tracks):
+        if remaining_memories <= 0:
+            break
+
         beat_duration = 60.0 / track_cfg.bpm
-        required_track_duration = count * beat_duration
 
         # Read audio file
         audio_data, sr = sf.read(str(track_cfg.path), always_2d=True)
         track_total_duration = len(audio_data) / sr
+        available_seconds = track_total_duration - track_cfg.start_offset_seconds
 
-        # Validate sufficient audio length (fail-fast)
+        if available_seconds <= 0:
+            raise ValueError(
+                f"Audio track {track_idx + 1} ('{track_cfg.path.name}') has offset {track_cfg.start_offset_seconds:.2f}s "
+                f"which exceeds total track duration of {track_total_duration:.2f}s."
+            )
+
+        # Max beats this track can provide after offset
+        max_beats_in_track = int(available_seconds / beat_duration)
+        if max_beats_in_track == 0:
+            continue
+
+        # Assign as many memories as this track can cover
+        beats_to_take = min(remaining_memories, max_beats_in_track)
+        required_track_duration = beats_to_take * beat_duration
+
         start_sample_offset = int(track_cfg.start_offset_seconds * sr)
         needed_samples = int(required_track_duration * sr)
-        
-        if start_sample_offset + needed_samples > len(audio_data):
-            available_after_offset = max(0.0, track_total_duration - track_cfg.start_offset_seconds)
-            raise ValueError(
-                f"Audio track {track_idx + 1} ('{track_cfg.path.name}') is too short! "
-                f"Requires {required_track_duration:.2f}s ({count} beats at {track_cfg.bpm} BPM), "
-                f"but only {available_after_offset:.2f}s is available after offset {track_cfg.start_offset_seconds:.2f}s."
-            )
 
         # Slice audio samples
         sliced_audio = audio_data[start_sample_offset : start_sample_offset + needed_samples]
 
         # Resample if sample rate differs from 44.1kHz standard
         if sr != target_sr:
-            # Linear interpolation resampling for clean audio without heavy deps
             num_target_samples = int(len(sliced_audio) * (target_sr / sr))
             indices = np.linspace(0, len(sliced_audio) - 1, num_target_samples)
             resampled = np.zeros((num_target_samples, sliced_audio.shape[1]), dtype=np.float32)
@@ -107,14 +104,17 @@ def build_timeline_and_audio(
                 resampled[:, ch] = np.interp(indices, np.arange(len(sliced_audio)), sliced_audio[:, ch])
             sliced_audio = resampled
 
+        # Ensure 2 channels (stereo)
+        if sliced_audio.shape[1] == 1:
+            sliced_audio = np.repeat(sliced_audio, 2, axis=1)
+
         audio_segments.append(sliced_audio)
 
-        # Build beat entries for this partition
-        for beat_i in range(count):
-            mem_idx = start_idx + beat_i
-            mem_item = memories[mem_idx]
+        # Build beat entries for this track's slice
+        for beat_i in range(beats_to_take):
+            mem_item = memories[mem_cursor]
+            mem_cursor += 1
 
-            # Calculate frame boundaries to prevent rounding drift
             entry_start_time = current_time + (beat_i * beat_duration)
             entry_end_time = current_time + ((beat_i + 1) * beat_duration)
 
@@ -136,14 +136,28 @@ def build_timeline_and_audio(
 
         current_time += required_track_duration
         current_frame = round(current_time * fps)
+        remaining_memories -= beats_to_take
+
+    # If all tracks were exhausted and memories still remain, fail fast
+    if remaining_memories > 0:
+        covered = total_memories - remaining_memories
+        raise ValueError(
+            f"Provided audio tracks are too short for all {total_memories} memories! "
+            f"The tracks covered {covered} memories ({current_time:.2f}s), but {remaining_memories} memories still remain."
+        )
 
     # 2. Combine audio segments
     combined_audio = np.concatenate(audio_segments, axis=0) if len(audio_segments) > 1 else audio_segments[0]
     
+    # Normalize peak volume to -0.5 dB (0.95 amplitude) for crisp, audible sound
+    peak = np.max(np.abs(combined_audio))
+    if peak > 0:
+        combined_audio = (combined_audio / peak) * 0.95
+
     # 3. Write concatenated/trimmed audio to disk
     output_audio_path = Path(output_audio_path).resolve()
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(output_audio_path), combined_audio, target_sr, format="WAV")
+    sf.write(str(output_audio_path), combined_audio, target_sr, format="WAV", subtype="PCM_16")
 
     total_duration = len(combined_audio) / target_sr
     total_frames = entries[-1].frame_start + entries[-1].frame_count if entries else 0

@@ -55,6 +55,7 @@ def run(config_path: str | Path) -> None:
         output_path=config.output_path,
         width=config.width,
         height=config.height,
+        year=config.year,
         show_progress=True,
     )
 

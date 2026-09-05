@@ -23,7 +23,7 @@ class AppConfig(BaseModel):
     """Configuration schema for BeReal recap video generation."""
     year: int = Field(..., ge=2000, le=2100, description="Target year for recap")
     export_dir: Path = Field(..., description="Directory of the extracted BeReal archive")
-    tracks: List[TrackConfig] = Field(..., min_length=1, max_length=2, description="List of 1 to 2 audio tracks")
+    tracks: List[TrackConfig] = Field(..., min_length=1, description="List of 1 or more audio tracks")
     output_path: Path = Field(default=Path("bereal_recap.mp4"), description="Output video file path")
     fps: int = Field(default=30, gt=0, le=120, description="Video frames per second")
     width: int = Field(default=1080, gt=0, description="Video width in pixels (default 1080)")

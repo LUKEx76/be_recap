@@ -13,6 +13,7 @@ def render_recap_video(
     output_path: Path,
     width: int = 1080,
     height: int = 1920,
+    year: Optional[int] = None,
     show_progress: bool = True,
 ) -> Path:
     """
@@ -20,7 +21,11 @@ def render_recap_video(
     
     Memory footprint: O(1) — exactly 1 uncompressed image in RAM at any given time.
     Performance: Each memory frame is composited once and duplicated across its beat frame count.
+    Metadata: Sets internal creation_time and file modification time to Dec 31 23:59:59 of the target year.
     """
+    import os
+    from datetime import datetime, timezone
+
     output_path = Path(output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -39,17 +44,33 @@ def render_recap_video(
         "-s", f"{width}x{height}",
         "-pix_fmt", "rgb24",
         "-r", str(fps),
-        "-i", "-",  # Video input from stdin
-        "-i", str(timeline.audio_file_path),  # Audio input from file
+        "-i", "-",  # Video input (index 0)
+        "-i", str(timeline.audio_file_path),  # Audio input (index 1)
+        "-map", "0:v:0",
+        "-map", "1:a:0",
         "-c:v", "libx264",
         "-preset", "medium",
         "-crf", "19",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
+        "-ar", "44100",
+        "-ac", "2",
+        "-movflags", "+faststart",
         "-shortest",
-        str(output_path),
     ]
+
+    # Add gallery date metadata (Dec 31 23:59:59 of given year)
+    if year is not None:
+        creation_ts = f"{year}-12-31T23:59:59Z"
+        cmd.extend([
+            "-metadata", f"creation_time={creation_ts}",
+            "-metadata", f"date={year}-12-31",
+            "-metadata:s:v:0", f"creation_time={creation_ts}",
+            "-metadata:s:a:0", f"creation_time={creation_ts}",
+        ])
+
+    cmd.append(str(output_path))
 
     process = subprocess.Popen(
         cmd,
@@ -82,6 +103,12 @@ def render_recap_video(
 
         if ret_code != 0:
             raise RuntimeError(f"FFmpeg failed with exit code {ret_code}:\n{stderr_output}")
+
+        # Set filesystem modification & access time to Dec 31 23:59:59 of target year
+        if year is not None:
+            target_dt = datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+            target_ts = target_dt.timestamp()
+            os.utime(str(output_path), (target_ts, target_ts))
 
     except Exception as e:
         if process.stdin and not process.stdin.closed:
