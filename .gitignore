@@ -10,5 +10,6 @@ wheels/
 .venv
 
 data/
+output/
 *:Zone.Identifier
 *Zone.Identifier
