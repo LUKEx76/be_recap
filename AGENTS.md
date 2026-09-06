@@ -7,13 +7,14 @@ Welcome to **be_recap**, a Python-based multimedia processing pipeline designed 
 ## 🎯 Project Objective
 
 Generate high-quality 9:16 vertical recap videos from an exported BeReal archive for any selected year:
-1. **Beat Syncing**: Display exactly 1 BeReal memory per beat based on user-provided music tracks (1–2 songs) and BPMs.
+1. **Beat Syncing**: Display exactly 1 (or $N$) BeReal memory per beat based on user-provided music tracks (1–2 songs), BPMs, and offsets.
 2. **Authentic BeReal Layout**:
-   - **Background**: Large full-frame primary/back camera photo (scaled and centered).
+   - **Background**: Large full-frame primary/back camera photo (scaled and center-cropped to 1080x1920).
    - **Top-Left PIP**: Front-facing selfie camera photo with rounded corners and a subtle white border.
    - **Top-Right Overlay**: Date (`DD.MM.YYYY`) and Location (`City, Country` via reverse geocoding).
-   - **Bottom Overlay**: Caption with adaptive font sizing to prevent overflow and ensure legibility.
-3. **Sequential Audio Chaining**: Support 1 or 2 sequential audio tracks, smoothly transitioning audio and timing.
+   - **Bottom Overlay**: Caption with adaptive font sizing and emoji rendering (`pilmoji`) to prevent overflow and ensure legibility.
+3. **Sequential Audio Chaining**: Support 1 or 2 sequential audio tracks, smoothly transitioning audio, per-track BPMs, and frame timing.
+4. **Timezone-Aware Gallery Metadata**: Set video container `creation_time` and filesystem modification timestamps to Dec 31 23:59:59 in the user's local timezone so that gallery apps (Google Photos, Apple Photos) display the video at the end of the year.
 
 ---
 
@@ -23,16 +24,19 @@ The project follows a clean, modular structure:
 
 ```
 be_recap/
-├── data/                  # Git-ignored local BeReal export folders and audio tracks
+├── configs/               # User and example JSON configurations
+│   └── config.example.json
+├── data/                  # Git-ignored local BeReal export folders
+├── songs/                 # Git-ignored local audio files
 ├── src/
 │   ├── __init__.py
-│   ├── config.py          # Configuration dataclass / Pydantic (year, songs, BPM, visual styling)
+│   ├── config.py          # Pydantic configuration schema (AppConfig, TrackConfig) and file loading
 │   ├── parser.py          # BeReal memories.json parsing, sorting, filtering, and GPS extraction
-│   ├── geocoder.py        # Offline reverse-geocoding (lat/lon -> City, Country) with caching
-│   ├── compositor.py      # Pillow / OpenCV image frame generation (PIP rounding, text overlays, layout)
+│   ├── geocoder.py        # Offline reverse-geocoding (lat/lon -> City, Country) with JSON caching
+│   ├── compositor.py      # Pillow image composition (PIP rounding, border, text overlays, layout)
 │   ├── audio.py           # Beat timeline computation and audio concatenation
-│   └── video.py           # MoviePy / FFmpeg video assembly and rendering
-├── main.py                # CLI entry point to run generation
+│   └── video.py           # Zero-RAM FFmpeg video streaming, H.264 CRF 25 encoding, and metadata tagging
+├── main.py                # CLI entry point (`-c / --config <path>`)
 ├── pyproject.toml         # Project metadata and dependencies (managed with uv)
 ├── uv.lock                # Locked dependency tree
 ├── AGENTS.md              # Guidelines for AI agents (this file)
@@ -44,16 +48,16 @@ be_recap/
 ## 🛠️ Development & Tooling Guidelines
 
 - **Package & Environment Manager**: Use `uv` for dependency management (`uv run`, `uv add`, `uv sync`).
-- **Python Version**: Python 3.12+ (or 3.14 compatible).
+- **Python Version**: Python 3.12+ (Python 3.14 compatible).
 - **Key Dependencies**:
-  - `moviepy` (>=2.0): Video compilation and audio/video muxing.
-  - `Pillow` / `opencv-python`: High-performance 2D image composition, rounded rectangle masking, text rendering.
+  - `Pillow` / `pilmoji`: High-performance 2D image composition, rounded rectangle masking, and emoji font rendering.
+  - `imageio-ffmpeg`: Direct raw RGB frame streaming into FFmpeg subprocess ($O(1)$ RAM usage).
+  - `soundfile` / `librosa` / `numpy`: Audio splicing, resampling, and timeline synchronization.
   - `reverse_geocoder`: Fast offline reverse geocoding from GPS coordinates to city/country.
   - `pydantic`: Type-safe configuration and input validation.
-  - `soundfile` / `librosa`: Audio processing and timeline calculation.
 - **Git Discipline**:
-  - Never commit raw personal data or images from `data/`.
-  - Always verify `.gitignore` excludes `data/` and `*:Zone.Identifier`.
+  - Never commit raw personal data or images from `data/` or `songs/`.
+  - Always verify `.gitignore` excludes `data/`, `songs/`, `output/`, and `*:Zone.Identifier`.
 
 ---
 
@@ -63,8 +67,9 @@ be_recap/
 - **Background Frame**: Scaled with center-crop to fit 1080x1920 without stretching.
 - **Selfie PIP Frame**:
   - Width: ~28-30% of canvas width (~300-320px).
-  - Position: Top-left with margin (e.g. `x=40, y=40`).
+  - Position: Top-left with margin (`x=40, y=40`).
   - Corner Radius: ~24px with a 3px clean white border.
 - **Text Overlays**:
-  - Date & Location: Top-right aligned, white sans-serif text with soft drop shadow or semi-transparent backing.
-  - Caption: Bottom-centered, dynamic font scaling based on text length with wrapping.
+  - Date & Location: Top-right aligned, white sans-serif text with soft drop shadow.
+  - Caption: Bottom-centered, dynamic font scaling based on text length with word wrapping.
+- **Encoding**: H.264 (`libx264`), `medium` preset, `crf=25`, `yuv420p` for optimal compression and universal compatibility.

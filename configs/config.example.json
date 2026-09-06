@@ -5,13 +5,13 @@
   "fps": 30,
   "tracks": [
     {
-      "path": "song/first_song.mp3",
+      "path": "songs/first_song.mp3",
       "bpm": 120.0,
       "beats_per_memory": 1,
       "start_offset_seconds": 0.0
     },
     {
-      "path": "song/second_song.mp3",
+      "path": "songs/second_song.mp3",
       "bpm": 160.0,
       "beats_per_memory": 2,
       "start_offset_seconds": -0.25
