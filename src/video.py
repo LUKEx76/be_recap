@@ -8,6 +8,48 @@ from src.audio import AudioTimeline
 from src.compositor import compose_frame, compose_year_card
 
 
+def _get_year_end_timestamps(year: int):
+    """
+    Computes local and UTC datetime representations for Dec 31 23:59:59 of the given year
+    based on the user's system timezone.
+    
+    This ensures that when gallery apps (Google Photos, Apple Photos) display the video
+    in the user's local timezone, it appears exactly at Dec 31 23:59:59 rather than rolling
+    over into Jan 1 of the following year.
+    """
+    import os
+    import zoneinfo
+    from datetime import datetime, timezone
+
+    tz = None
+    tz_env = os.environ.get("TZ")
+    if tz_env:
+        try:
+            tz = zoneinfo.ZoneInfo(tz_env)
+        except Exception:
+            pass
+
+    if tz is None:
+        try:
+            if os.path.exists("/etc/localtime") and os.path.islink("/etc/localtime"):
+                parts = os.readlink("/etc/localtime").split("/")
+                if "zoneinfo" in parts:
+                    idx = parts.index("zoneinfo")
+                    tz = zoneinfo.ZoneInfo("/".join(parts[idx + 1:]))
+        except Exception:
+            pass
+
+    if tz is None:
+        try:
+            tz = datetime.now().astimezone().tzinfo
+        except Exception:
+            tz = timezone.utc
+
+    local_dt = datetime(year, 12, 31, 23, 59, 59, tzinfo=tz)
+    utc_dt = local_dt.astimezone(timezone.utc)
+    return local_dt, utc_dt
+
+
 def render_recap_video(
     timeline: AudioTimeline,
     output_path: Path,
@@ -24,7 +66,6 @@ def render_recap_video(
     Metadata: Sets internal creation_time and file modification time to Dec 31 23:59:59 of the target year.
     """
     import os
-    from datetime import datetime, timezone
 
     output_path = Path(output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +91,7 @@ def render_recap_video(
         "-map", "1:a:0",
         "-c:v", "libx264",
         "-preset", "medium",
-        "-crf", "19",
+        "-crf", "25",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
@@ -60,14 +101,18 @@ def render_recap_video(
         "-shortest",
     ]
 
-    # Add gallery date metadata (Dec 31 23:59:59 of given year)
+    # Add gallery date metadata (Dec 31 23:59:59 in local time)
+    local_dt = None
     if year is not None:
-        creation_ts = f"{year}-12-31T23:59:59Z"
+        local_dt, utc_dt = _get_year_end_timestamps(year)
+        utc_iso = utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        local_iso = local_dt.isoformat()
         cmd.extend([
-            "-metadata", f"creation_time={creation_ts}",
-            "-metadata", f"date={year}-12-31",
-            "-metadata:s:v:0", f"creation_time={creation_ts}",
-            "-metadata:s:a:0", f"creation_time={creation_ts}",
+            "-metadata", f"creation_time={utc_iso}",
+            "-metadata", f"date={local_iso}",
+            "-metadata", f"com.apple.quicktime.creationdate={local_iso}",
+            "-metadata:s:v:0", f"creation_time={utc_iso}",
+            "-metadata:s:a:0", f"creation_time={utc_iso}",
         ])
 
     cmd.append(str(output_path))
@@ -108,10 +153,9 @@ def render_recap_video(
         if ret_code != 0:
             raise RuntimeError(f"FFmpeg failed with exit code {ret_code}:\n{stderr_output}")
 
-        # Set filesystem modification & access time to Dec 31 23:59:59 of target year
-        if year is not None:
-            target_dt = datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
-            target_ts = target_dt.timestamp()
+        # Set filesystem modification & access time to Dec 31 23:59:59 in local time
+        if year is not None and local_dt is not None:
+            target_ts = local_dt.timestamp()
             os.utime(str(output_path), (target_ts, target_ts))
 
     except Exception as e:
